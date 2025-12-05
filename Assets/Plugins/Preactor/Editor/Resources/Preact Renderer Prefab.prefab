@@ -50,9 +50,13 @@ MonoBehaviour:
   sourceAsset: {fileID: 9197481963319205126, guid: da6275ccc85492e468c37f133ded0a52,
     type: 3}
   m_SortingOrder: 0
+  m_Position: 0
   m_WorldSpaceSizeMode: 1
   m_WorldSpaceWidth: 1920
   m_WorldSpaceHeight: 1080
+  m_PivotReferenceSize: 0
+  m_Pivot: 0
+  m_WorldSpaceCollider: {fileID: 0}
 --- !u!114 &2408465953805382415
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -72,3 +76,5 @@ MonoBehaviour:
   <LiveReload>k__BackingField: 1
   <PollingInterval>k__BackingField: 300
   <ClearLogs>k__BackingField: 1
+  <EnableRemoteDebugging>k__BackingField: 0
+  <DebuggerPort>k__BackingField: 9222

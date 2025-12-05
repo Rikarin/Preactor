@@ -16,12 +16,9 @@ namespace Preactor.CustomStyleSheets.Structs {
     }
 
     public struct StyleSelectorPart {
-        [SerializeField]
-        string m_Value;
-
-        [SerializeField]
-        StyleSelectorType m_Type;
-
+        [SerializeField] string m_Value;
+        [SerializeField] StyleSelectorType m_Type;
+        
         internal object tempData;
 
         public string value {

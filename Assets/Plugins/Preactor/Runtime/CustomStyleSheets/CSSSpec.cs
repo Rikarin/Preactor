@@ -4,79 +4,117 @@ using System.Text.RegularExpressions;
 
 namespace Preactor.CustomStyleSheets {
     public static class CSSSpec {
-        static readonly Regex regex =
-            new(
-                "(?<id>#[-]?\\w[\\w-]*)|(?<class>\\.[\\w-]+)|(?<pseudoclass>:[\\w-]+(\\((?<param>.+)\\))?)|(?<type>[^\\-]\\w+)|(?<wildcard>\\*)|\\s+",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled
-            );
+        // Token: 0x04001D3F RID: 7487
+        const int typeSelectorWeight = 1;
 
-        public static int GetSelectorSpecificity(string selector) =>
-            ParseSelector(selector, out var parts) ? GetSelectorSpecificity(parts) : 0;
+        // Token: 0x04001D40 RID: 7488
+        const int classSelectorWeight = 10;
 
+        // Token: 0x04001D41 RID: 7489
+        const int idSelectorWeight = 100;
+
+        // Token: 0x04001D3E RID: 7486
+        static readonly Regex rgx = new(
+            "(?<id>#[-]?\\w[\\w-]*)|(?<class>\\.[\\w-]+)|(?<pseudoclass>:[\\w-]+(\\((?<param>.+)\\))?)|(?<type>([^\\-]\\w+|\\w+))|(?<wildcard>\\*)|\\s+",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled
+        );
+
+        public static int GetSelectorSpecificity(string selector) {
+            var result = 0;
+            StyleSelectorPart[] parts;
+            var flag = ParseSelector(selector, out parts);
+            if (flag) {
+                result = GetSelectorSpecificity(parts);
+            }
+
+            return result;
+        }
+
+        // Token: 0x06003A6B RID: 14955 RVA: 0x000E4930 File Offset: 0x000E2B30
         public static int GetSelectorSpecificity(StyleSelectorPart[] parts) {
-            var selectorSpecificity = 1;
-
-            foreach (var t in parts) {
-                switch (t.type) {
+            var num = 1;
+            for (var i = 0; i < parts.Length; i++) {
+                switch (parts[i].type) {
                     case StyleSelectorType.Type:
-                        ++selectorSpecificity;
+                        num++;
                         break;
                     case StyleSelectorType.Class:
                     case StyleSelectorType.PseudoClass:
-                        selectorSpecificity += 10;
+                        num += 10;
                         break;
                     case StyleSelectorType.RecursivePseudoClass:
                         throw new ArgumentException("Recursive pseudo classes are not supported");
                     case StyleSelectorType.ID:
-                        selectorSpecificity += 100;
+                        num += 100;
                         break;
                 }
             }
 
-            return selectorSpecificity;
+            return num;
         }
 
+        // Token: 0x06003A6C RID: 14956 RVA: 0x000E49AC File Offset: 0x000E2BAC
+        public static bool ValidateSelector(string selector) => rgx.Matches(selector).Count > 0;
+
+        // Token: 0x06003A6D RID: 14957 RVA: 0x000E49D4 File Offset: 0x000E2BD4
         public static bool ParseSelector(string selector, out StyleSelectorPart[] parts) {
-            var matchCollection = regex.Matches(selector);
+            var matchCollection = rgx.Matches(selector);
             var count = matchCollection.Count;
-            if (count < 1) {
+            var flag = count < 1;
+            bool result;
+            if (flag) {
                 parts = null;
-                return false;
-            }
-
-            parts = new StyleSelectorPart[count];
-            for (var i = 0; i < count; ++i) {
-                var match = matchCollection[i];
-                var styleSelectorType = StyleSelectorType.Unknown;
-                var str1 = string.Empty;
-
-                if (!string.IsNullOrEmpty(match.Groups["wildcard"].Value)) {
-                    str1 = "*";
-                    styleSelectorType = StyleSelectorType.Wildcard;
-                } else if (!string.IsNullOrEmpty(match.Groups["id"].Value)) {
-                    str1 = match.Groups["id"].Value.Substring(1);
-                    styleSelectorType = StyleSelectorType.ID;
-                } else if (!string.IsNullOrEmpty(match.Groups["class"].Value)) {
-                    str1 = match.Groups["class"].Value.Substring(1);
-                    styleSelectorType = StyleSelectorType.Class;
-                } else if (!string.IsNullOrEmpty(match.Groups["pseudoclass"].Value)) {
-                    var str2 = match.Groups["param"].Value;
-                    if (!string.IsNullOrEmpty(str2)) {
-                        str1 = str2;
-                        styleSelectorType = StyleSelectorType.RecursivePseudoClass;
+                result = false;
+            } else {
+                parts = new StyleSelectorPart[count];
+                for (var i = 0; i < count; i++) {
+                    var match = matchCollection[i];
+                    var type = StyleSelectorType.Unknown;
+                    var value = string.Empty;
+                    var flag2 = !string.IsNullOrEmpty(match.Groups["wildcard"].Value);
+                    if (flag2) {
+                        value = "*";
+                        type = StyleSelectorType.Wildcard;
                     } else {
-                        str1 = match.Groups["pseudoclass"].Value.Substring(1);
-                        styleSelectorType = StyleSelectorType.PseudoClass;
+                        var flag3 = !string.IsNullOrEmpty(match.Groups["id"].Value);
+                        if (flag3) {
+                            value = match.Groups["id"].Value.Substring(1);
+                            type = StyleSelectorType.ID;
+                        } else {
+                            var flag4 = !string.IsNullOrEmpty(match.Groups["class"].Value);
+                            if (flag4) {
+                                value = match.Groups["class"].Value.Substring(1);
+                                type = StyleSelectorType.Class;
+                            } else {
+                                var flag5 = !string.IsNullOrEmpty(match.Groups["pseudoclass"].Value);
+                                if (flag5) {
+                                    var value2 = match.Groups["param"].Value;
+                                    var flag6 = !string.IsNullOrEmpty(value2);
+                                    if (flag6) {
+                                        value = value2;
+                                        type = StyleSelectorType.RecursivePseudoClass;
+                                    } else {
+                                        value = match.Groups["pseudoclass"].Value.Substring(1);
+                                        type = StyleSelectorType.PseudoClass;
+                                    }
+                                } else {
+                                    var flag7 = !string.IsNullOrEmpty(match.Groups["type"].Value);
+                                    if (flag7) {
+                                        value = match.Groups["type"].Value;
+                                        type = StyleSelectorType.Type;
+                                    }
+                                }
+                            }
+                        }
                     }
-                } else if (!string.IsNullOrEmpty(match.Groups["type"].Value)) {
-                    str1 = match.Groups["type"].Value;
-                    styleSelectorType = StyleSelectorType.Type;
+
+                    parts[i] = new() { type = type, value = value };
                 }
 
-                parts[i] = new() { type = styleSelectorType, value = str1 };
+                result = true;
             }
 
-            return true;
+            return result;
         }
     }
 }

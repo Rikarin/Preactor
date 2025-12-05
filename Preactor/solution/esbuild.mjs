@@ -3,7 +3,7 @@ import * as esbuild from 'esbuild';
 import chokidar from 'chokidar';
 import { importTransformPlugin, watchOutputPlugin } from '@rikarin/preactor/scripts/esbuild/index.mjs';
 
-const SOURCE_PATH = './dist/tsc/Views/**/index.js';
+const SOURCE_PATH = './dist/tsc/Views/*/index.js';
 
 async function prepare() {
   try {

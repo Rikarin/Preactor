@@ -11,6 +11,16 @@ namespace Preactor.CustomStyleSheets.Wrappers {
         readonly Type type;
         readonly object instance;
 
+        // MOD: Expose currentProperty StyleValueImporter
+        public object currentProperty {
+            // StyleProperty is internal
+            get {
+                var propertyInfo = type.GetProperty("currentProperty");
+                var original = propertyInfo.GetValue(instance);
+                return original;
+            }
+        }
+
         public StyleSheetBuilderWrapper() {
             type = typeof(VisualElement).Assembly.GetType("UnityEngine.UIElements.StyleSheets.StyleSheetBuilder");
             instance = Activator.CreateInstance(type);
@@ -54,8 +64,9 @@ namespace Preactor.CustomStyleSheets.Wrappers {
             var methodInfo = type.GetMethod("AddSimpleSelector", new[] { t1Array, t2 });
 
             var newParts = parts.Select(p => p.ToOriginal()).ToArray();
-            var destinationArray = Array.CreateInstance(t1, parts.Length);
-            Array.Copy(newParts, destinationArray, parts.Length);
+            var length = parts.Length;
+            var destinationArray = Array.CreateInstance(t1, length);
+            Array.Copy(newParts, destinationArray, length);
 
             methodInfo.Invoke(instance, new object[] { destinationArray, (int)previousRelationsip });
         }

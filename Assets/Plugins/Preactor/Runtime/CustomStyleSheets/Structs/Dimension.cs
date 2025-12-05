@@ -25,18 +25,13 @@ namespace Preactor.CustomStyleSheets.Structs {
             );
 
         public Angle ToAngle() {
-            switch (unit) {
-                case Unit.Degree:
-                    return new(value, AngleUnit.Degree);
-                case Unit.Gradian:
-                    return new(value, AngleUnit.Gradian);
-                case Unit.Radian:
-                    return new(value, AngleUnit.Radian);
-                case Unit.Turn:
-                    return new(value, AngleUnit.Turn);
-                default:
-                    return new(value, AngleUnit.Degree);
-            }
+            return unit switch {
+                Unit.Degree => new(value, AngleUnit.Degree),
+                Unit.Gradian => new(value, AngleUnit.Gradian),
+                Unit.Radian => new(value, AngleUnit.Radian),
+                Unit.Turn => new(value, AngleUnit.Turn),
+                _ => new(value, AngleUnit.Degree)
+            };
         }
 
         public static bool operator ==(Dimension lhs, Dimension rhs) =>

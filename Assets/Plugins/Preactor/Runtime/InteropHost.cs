@@ -18,8 +18,8 @@ namespace Preactor {
         [JsInterop]
         public Action AddOrUpdateSubscribe(object store, object key, GenericDelegate handler) {
             var args = store.GetType().BaseType!.GetGenericArguments();
-            if (args.Length != 2) {
-                throw new NotSupportedException("Store should have 2 generic arguments");
+            if (args.Length != 3) {
+                throw new NotSupportedException("Store should have 3 generic arguments");
             }
 
             // Key can be either Enum or has to have TypeConverter defined

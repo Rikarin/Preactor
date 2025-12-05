@@ -1702,7 +1702,7 @@ namespace Preactor {
                             _ => AngleUnit.Degree
                         };
 
-                        styleRotate = new Rotate(new(f, angleUnit));
+                        styleRotate = new Rotate(new Angle(f, angleUnit));
                         return true;
                     }
 

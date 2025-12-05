@@ -1,5 +1,6 @@
 ﻿using ExCSS;
 using Preactor.CustomStyleSheets.Structs;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using UnityEngine;
@@ -9,8 +10,7 @@ namespace Preactor.CustomStyleSheets {
     public class CustomStyleSheetImporterImpl : StyleValueImporter {
         public void BuildStyleSheet(StyleSheet asset, string contents) {
             var styleSheet = m_Parser.Parse(contents);
-            ImportParserStyleSheet(asset, styleSheet);
-
+            ImportParserStyleSheet(asset, styleSheet, m_Parser.errors);
             var hash = new Hash128();
             var bytes = Encoding.UTF8.GetBytes(contents);
             if (bytes.Length != 0) {
@@ -20,17 +20,35 @@ namespace Preactor.CustomStyleSheets {
             asset.contentHash = hash.GetHashCode();
         }
 
-        void VisitSheet(ExCSS.StyleSheet styleSheet) {
-            foreach (var styleRule in styleSheet.StyleRules) {
-                m_Builder.BeginRule(styleRule.Line);
-                m_CurrentLine = styleRule.Line;
-                VisitBaseSelector(styleRule.Selector);
+        void AddUssParserError(TokenizerError error) {
+            var parseError = (ParseError)error.Code;
+            var arg = error.Message;
+            var flag = parseError == ParseError.InvalidBlockStart;
+            if (flag) {
+                arg = "Invalid block start, no selector found before the opening curly bracket.";
+            }
 
-                foreach (var declaration in styleRule.Declarations) {
-                    m_CurrentLine = declaration.Line;
-                    ValidateProperty(declaration);
-                    m_Builder.BeginProperty(declaration.Name, declaration.Line);
-                    VisitValue(declaration.Term);
+            var arg2 = $"{(ParseError)error.Code} : {arg}";
+            m_Errors.AddSyntaxError(
+                string.Format(glossary.ussParsingError, arg2),
+                error.Position.Line,
+                error.Position.Column
+            );
+        }
+
+        int GetPropertyLine(Property property) => property.DeclaredValue.Original[0].Position.Line;
+
+        void VisitSheet(Stylesheet styleSheet) {
+            foreach (var styleRule in styleSheet.StyleRules) {
+                m_Builder.BeginRule(styleRule.StylesheetText.Range.Start.Line);
+                m_CurrentLine = styleRule.StylesheetText.Range.Start.Line;
+                VisitBaseSelector(styleRule.Selector);
+                foreach (var property in styleRule.Style.Declarations) {
+                    var propertyLine = GetPropertyLine(property);
+                    m_CurrentLine = propertyLine;
+                    ValidateProperty(property);
+                    m_Builder.BeginProperty(property.Name, propertyLine);
+                    VisitValue(property);
                     m_Builder.EndProperty();
                 }
 
@@ -38,109 +56,228 @@ namespace Preactor.CustomStyleSheets {
             }
         }
 
-        void VisitBaseSelector(BaseSelector selector) {
-            switch (selector) {
-                case AggregateSelectorList selectorList:
-                    VisitSelectorList(selectorList);
-                    break;
-                case ComplexSelector complexSelector:
-                    VisitComplexSelector(complexSelector);
-                    break;
-                case SimpleSelector simpleSelector:
-                    VisitSimpleSelector(simpleSelector.ToString());
-                    break;
+        void VisitBaseSelector(ISelector selector) {
+            if (selector is not AllSelector allSelector) {
+                if (selector is not ClassSelector classSelector) {
+                    if (selector is not ComplexSelector complexSelector) {
+                        if (selector is not CompoundSelector compoundSelector) {
+                            if (selector is not IdSelector idSelector) {
+                                if (selector is not ListSelector listSelector) {
+                                    if (selector is not PseudoClassSelector pseudoClassSelector) {
+                                        if (selector is not TypeSelector typeSelector) {
+                                            if (selector is not UnknownSelector unknownSelector) {
+                                                m_Errors.AddSemanticError(
+                                                    StyleSheetImportErrorCode.UnsupportedSelectorFormat,
+                                                    string.Format(
+                                                        glossary.unsupportedSelectorFormat,
+                                                        selector.GetType().Name + ": `" + selector.Text + "`"
+                                                    ),
+                                                    m_CurrentLine
+                                                );
+                                            } else {
+                                                VisitUnknownSelector(unknownSelector);
+                                            }
+                                        } else {
+                                            VisitSelectorParts(
+                                                new[] { StyleSelectorPart.CreateType(typeSelector.Name) },
+                                                typeSelector
+                                            );
+                                        }
+                                    } else {
+                                        ValidatePsuedoClassName(pseudoClassSelector.Class, pseudoClassSelector.Text);
+                                        VisitSelectorParts(
+                                            new[] { StyleSelectorPart.CreatePseudoClass(pseudoClassSelector.Class) },
+                                            pseudoClassSelector
+                                        );
+                                    }
+                                } else {
+                                    foreach (var selector2 in listSelector) {
+                                        VisitBaseSelector(selector2);
+                                    }
+                                }
+                            } else {
+                                VisitSelectorParts(new[] { StyleSelectorPart.CreateId(idSelector.Id) }, idSelector);
+                            }
+                        } else {
+                            StyleSelectorPart[] parts;
+                            var flag = TryExtractSelectorsParts(compoundSelector, out parts);
+                            if (flag) {
+                                VisitSelectorParts(parts, compoundSelector);
+                            }
+                        }
+                    } else {
+                        VisitComplexSelector(complexSelector);
+                    }
+                } else {
+                    VisitSelectorParts(new[] { StyleSelectorPart.CreateClass(classSelector.Class) }, classSelector);
+                }
+            } else {
+                VisitSelectorParts(new[] { StyleSelectorPart.CreateWildCard() }, allSelector);
             }
         }
 
-        void VisitSelectorList(AggregateSelectorList selectorList) {
-            if (selectorList.Delimiter == ",") {
-                foreach (var selector in selectorList) {
-                    VisitBaseSelector(selector);
-                }
-            } else if (selectorList.Delimiter == string.Empty) {
-                VisitSimpleSelector(selectorList.ToString());
-            } else {
-                m_Errors.AddSemanticError(
-                    StyleSheetImportErrorCode.InvalidSelectorListDelimiter,
-                    string.Format(
-                        glossary.invalidSelectorListDelimiter,
-                        selectorList.Delimiter
-                    ),
+        void ValidatePsuedoClassName(string name, string selector) {
+            var flag = !disableValidation && !PseudoClassSelectorFactory.Selectors.ContainsKey(name);
+            if (flag) {
+                m_Errors.AddValidationWarning(
+                    string.Format(glossary.unknownPseudoClass, name, selector),
                     m_CurrentLine
                 );
             }
         }
 
-        void VisitSimpleSelector(string selector) {
-            if (!CheckSimpleSelector(selector, out var parts)) {
-                return;
+        // Token: 0x0600CC20 RID: 52256 RVA: 0x003BC304 File Offset: 0x003BA504
+        void VisitUnknownSelector(UnknownSelector unknownSelector) {
+            var text = unknownSelector.Text;
+            var flag = text.StartsWith(".") && text.Length > 1;
+            if (flag) {
+                var flag2 = char.IsDigit(text[1]) || (text.Length >= 2 && text[1] == '-' && char.IsDigit(text[2]));
+                if (flag2) {
+                    m_Errors.AddSemanticError(
+                        StyleSheetImportErrorCode.UnsupportedSelectorFormat,
+                        string.Format(glossary.selectorStartsWithDigitFormat, unknownSelector.Text),
+                        m_CurrentLine
+                    );
+                    return;
+                }
             }
 
+            m_Errors.AddSemanticError(
+                StyleSheetImportErrorCode.UnsupportedSelectorFormat,
+                string.Format(glossary.unsupportedSelectorFormat, unknownSelector.Text),
+                m_CurrentLine
+            );
+        }
+
+        void VisitSelectorParts(StyleSelectorPart[] parts, ISelector selector) {
             var selectorSpecificity = CSSSpec.GetSelectorSpecificity(parts);
-            if (selectorSpecificity == 0) {
+            var flag = selectorSpecificity == 0;
+            if (flag) {
                 m_Errors.AddInternalError(
-                    string.Format(
-                        glossary.internalError,
-                        "Failed to calculate selector specificity " + selector
-                    ),
+                    string.Format(glossary.internalError, "Failed to calculate selector specificity " + selector.Text),
                     m_CurrentLine
                 );
             } else {
                 using (m_Builder.BeginComplexSelector(selectorSpecificity)) {
-                    m_Builder.AddSimpleSelector(parts, StyleSelectorRelationship.None);
+                    m_Builder.AddSimpleSelector(parts, 0);
                 }
             }
+        }
+
+        bool TryExtractSelectorsParts(Selectors selectors, out StyleSelectorPart[] parts) {
+            parts = new StyleSelectorPart[selectors.Length];
+            for (var i = 0; i < selectors.Length; i++) {
+                var selector = selectors[i];
+                var selector2 = selector;
+                if (!(selector2 is AllSelector)) {
+                    var idSelector = selector2 as IdSelector;
+                    if (idSelector == null) {
+                        var classSelector = selector2 as ClassSelector;
+                        if (classSelector == null) {
+                            var pseudoClassSelector = selector2 as PseudoClassSelector;
+                            if (pseudoClassSelector == null) {
+                                var typeSelector = selector2 as TypeSelector;
+                                if (typeSelector == null) {
+                                    if (!(selector2 is FirstChildSelector)) {
+                                        var array = parts;
+                                        var num = i;
+                                        var styleSelectorPart = default(StyleSelectorPart);
+                                        styleSelectorPart.type = 0;
+                                        array[num] = styleSelectorPart;
+                                    } else {
+                                        var array2 = parts;
+                                        var num2 = i;
+                                        var styleSelectorPart = default(StyleSelectorPart);
+                                        styleSelectorPart.type = (StyleSelectorType)5;
+                                        array2[num2] = styleSelectorPart;
+                                    }
+                                } else {
+                                    parts[i] = StyleSelectorPart.CreateType(typeSelector.Name);
+                                }
+                            } else {
+                                var flag = pseudoClassSelector.Class.Contains("(");
+                                if (flag) {
+                                    m_Errors.AddSemanticError(
+                                        StyleSheetImportErrorCode.RecursiveSelectorDetected,
+                                        string.Format(glossary.unsupportedSelectorFormat, selectors.Text),
+                                        m_CurrentLine
+                                    );
+                                    return false;
+                                }
+
+                                parts[i] = StyleSelectorPart.CreatePseudoClass(pseudoClassSelector.Class);
+                            }
+                        } else {
+                            parts[i] = StyleSelectorPart.CreateClass(classSelector.Class);
+                        }
+                    } else {
+                        parts[i] = StyleSelectorPart.CreateId(idSelector.Id);
+                    }
+                } else {
+                    parts[i] = StyleSelectorPart.CreateWildCard();
+                }
+            }
+
+            return true;
         }
 
         void VisitComplexSelector(ComplexSelector complexSelector) {
-            var selectorSpecificity = CSSSpec.GetSelectorSpecificity(complexSelector.ToString());
-            if (selectorSpecificity == 0) {
+            var selectorSpecificity = CSSSpec.GetSelectorSpecificity(complexSelector.Text);
+            var flag = selectorSpecificity == 0;
+            if (flag) {
                 m_Errors.AddInternalError(
                     string.Format(
                         glossary.internalError,
-                        "Failed to calculate selector specificity " + complexSelector
+                        "Failed to calculate selector specificity "
+                        + (complexSelector != null ? complexSelector.ToString() : null)
                     ),
                     m_CurrentLine
                 );
             } else {
                 using (m_Builder.BeginComplexSelector(selectorSpecificity)) {
-                    var prevRelationship = StyleSelectorRelationship.None;
+                    StyleSelectorRelationship styleSelectorRelationship = 0;
+                    var num = complexSelector.Length - 1;
+                    var num2 = -1;
                     foreach (var combinatorSelector in complexSelector) {
-                        var simpleSelector = ExtractSimpleSelector(combinatorSelector.Selector);
-
-                        if (string.IsNullOrEmpty(simpleSelector)) {
+                        num2++;
+                        var text = combinatorSelector.Selector.Text;
+                        var flag2 = string.IsNullOrEmpty(text);
+                        if (flag2) {
                             m_Errors.AddInternalError(
                                 string.Format(
                                     glossary.internalError,
-                                    "Expected simple selector inside complex selector " + simpleSelector
+                                    "Expected simple selector inside complex selector " + text
                                 ),
                                 m_CurrentLine
                             );
                             break;
                         }
 
-                        if (!CheckSimpleSelector(simpleSelector, out var parts)) {
+                        StyleSelectorPart[] array;
+                        var flag3 = CheckSimpleSelector(text, out array);
+                        if (!flag3) {
                             break;
                         }
 
-                        m_Builder.AddSimpleSelector(parts, prevRelationship);
-                        switch (combinatorSelector.Delimiter) {
-                            case Combinator.Child:
-                                prevRelationship = StyleSelectorRelationship.Child;
-                                break;
-                            case Combinator.Descendent:
-                                prevRelationship = StyleSelectorRelationship.Descendent;
-                                break;
-                            default:
-                                m_Errors.AddSemanticError(
-                                    StyleSheetImportErrorCode.InvalidComplexSelectorDelimiter,
-                                    string.Format(
-                                        glossary.invalidComplexSelectorDelimiter,
-                                        complexSelector
-                                    ),
-                                    m_CurrentLine
-                                );
-                                return;
+                        m_Builder.AddSimpleSelector(array, styleSelectorRelationship);
+                        var flag4 = num2 != num;
+                        if (flag4) {
+                            var flag5 = combinatorSelector.Delimiter == Combinators.Child;
+                            if (flag5) {
+                                styleSelectorRelationship = (StyleSelectorRelationship)1;
+                            } else {
+                                var flag6 = combinatorSelector.Delimiter == Combinators.Descendent;
+                                if (!flag6) {
+                                    m_Errors.AddSemanticError(
+                                        StyleSheetImportErrorCode.InvalidComplexSelectorDelimiter,
+                                        string.Format(glossary.invalidComplexSelectorDelimiter, complexSelector.Text),
+                                        m_CurrentLine
+                                    );
+                                    break;
+                                }
+
+                                styleSelectorRelationship = (StyleSelectorRelationship)2;
+                            }
                         }
                     }
                 }
@@ -148,75 +285,82 @@ namespace Preactor.CustomStyleSheets {
         }
 
         bool CheckSimpleSelector(string selector, out StyleSelectorPart[] parts) {
-            if (!CSSSpec.ParseSelector(selector, out parts)) {
+            var flag = !CSSSpec.ParseSelector(selector, out parts);
+            bool result;
+            if (flag) {
                 m_Errors.AddSemanticError(
                     StyleSheetImportErrorCode.UnsupportedSelectorFormat,
                     string.Format(glossary.unsupportedSelectorFormat, selector),
                     m_CurrentLine
                 );
-                return false;
+                result = false;
+            } else {
+                var flag2 = parts.Any(p => p.type == 0);
+                if (flag2) {
+                    m_Errors.AddSemanticError(
+                        StyleSheetImportErrorCode.UnsupportedSelectorFormat,
+                        string.Format(glossary.unsupportedSelectorFormat, selector),
+                        m_CurrentLine
+                    );
+                    result = false;
+                } else {
+                    var flag3 = parts.Any(p => p.type == (StyleSelectorType)5);
+                    if (flag3) {
+                        m_Errors.AddSemanticError(
+                            StyleSheetImportErrorCode.RecursiveSelectorDetected,
+                            string.Format(glossary.unsupportedSelectorFormat, selector),
+                            m_CurrentLine
+                        );
+                        result = false;
+                    } else {
+                        var flag4 = !disableValidation;
+                        if (flag4) {
+                            foreach (var styleSelectorPart in parts) {
+                                var flag5 = styleSelectorPart.type == (StyleSelectorType)4;
+                                if (flag5) {
+                                    ValidatePsuedoClassName(styleSelectorPart.value, selector);
+                                }
+                            }
+                        }
+
+                        result = true;
+                    }
+                }
             }
 
-            if (parts.Any(p => p.type == StyleSelectorType.Unknown)) {
-                m_Errors.AddSemanticError(
-                    StyleSheetImportErrorCode.UnsupportedSelectorFormat,
-                    string.Format(glossary.unsupportedSelectorFormat, selector),
-                    m_CurrentLine
-                );
-                return false;
-            }
-
-            if (parts.All(p => p.type != StyleSelectorType.RecursivePseudoClass)) {
-                return true;
-            }
-
-            m_Errors.AddSemanticError(
-                StyleSheetImportErrorCode.RecursiveSelectorDetected,
-                string.Format(glossary.unsupportedSelectorFormat, selector),
-                m_CurrentLine
-            );
-            return false;
+            return result;
         }
 
         void ValidateProperty(Property property) {
-            if (disableValidation) {
-                return;
-            }
+            var flag = !disableValidation;
+            if (flag) {
+                var name = property.Name;
+                var value = property.Value;
+                var styleValidationResult = m_Validator.ValidateProperty(name, value);
+                var flag2 = !styleValidationResult.success;
+                if (flag2) {
+                    var text = string.Concat(
+                        styleValidationResult.message,
+                        "\n    ",
+                        name,
+                        ": ",
+                        value
+                    );
+                    var flag3 = !string.IsNullOrEmpty(styleValidationResult.hint);
+                    if (flag3) {
+                        text = text + " -> " + styleValidationResult.hint;
+                    }
 
-            var name = property.Name;
-            var str = property.Term.ToString();
-            var validationResult = m_Validator.ValidateProperty(name, str);
-            if (!validationResult.success) {
-                var message = validationResult.message + "\n    " + name + ": " + str;
-                if (!string.IsNullOrEmpty(validationResult.hint)) {
-                    message = message + " -> " + validationResult.hint;
+                    m_Errors.AddValidationWarning(text, GetPropertyLine(property));
                 }
-
-                m_Errors.AddValidationWarning(message, property.Line);
             }
         }
 
-        string ExtractSimpleSelector(BaseSelector selector) {
-            int num;
-            switch (selector) {
-                case SimpleSelector _:
-                    return selector.ToString();
-                case AggregateSelectorList aggregateSelectorList:
-                    num = aggregateSelectorList.Delimiter == string.Empty ? 1 : 0;
-                    break;
-                default:
-                    num = 0;
-                    break;
-            }
-
-            return num != 0 ? selector.ToString() : string.Empty;
-        }
-
-        void ImportParserStyleSheet(StyleSheet asset, ExCSS.StyleSheet styleSheet) {
+        protected void ImportParserStyleSheet(StyleSheet asset, Stylesheet styleSheet, List<TokenizerError> errors) {
             m_Errors.assetPath = assetPath;
-            if (styleSheet.Errors.Count > 0) {
-                foreach (var error in styleSheet.Errors) {
-                    m_Errors.AddSyntaxError(string.Format(glossary.ussParsingError, error.Message), error.Line);
+            if (errors.Count > 0) {
+                foreach (var error in errors) {
+                    AddUssParserError(error);
                 }
             } else {
                 VisitSheet(styleSheet);

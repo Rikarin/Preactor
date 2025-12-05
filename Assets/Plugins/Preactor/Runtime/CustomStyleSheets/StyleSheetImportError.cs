@@ -5,6 +5,7 @@
         public readonly string assetPath;
         public readonly string message;
         public readonly int line;
+        public readonly int column;
         public readonly bool isWarning;
 
         public StyleSheetImportError(
@@ -13,6 +14,7 @@
             string assetPath,
             string message,
             int line = -1,
+            int column = -1,
             bool isWarning = false
         ) {
             this.error = error;
@@ -20,17 +22,23 @@
             this.assetPath = assetPath;
             this.message = message;
             this.line = line;
+            this.column = column;
             this.isWarning = isWarning;
         }
 
         public override string ToString() => ToString(StyleValueImporter.glossary);
 
-        public string ToString(StyleSheetImportGlossary glossary) =>
-            assetPath
-            + (line > -1 ? $" ({glossary.line} {line})" : "")
-            + ": "
-            + (isWarning ? glossary.warning : glossary.error)
-            + ": "
-            + message;
+        public string ToString(StyleSheetImportGlossary glossary) {
+            var text = isWarning ? glossary.warning : glossary.error;
+            if (line > -1) {
+                if (column > -1) {
+                    return $"{assetPath} ({glossary.line} {line}, {glossary.column} {column}): {text}: {message}";
+                }
+
+                return $"{assetPath} ({glossary.line} {line}): {text}: {message}";
+            }
+
+            return assetPath + ": " + text + ": " + message;
+        }
     }
 }

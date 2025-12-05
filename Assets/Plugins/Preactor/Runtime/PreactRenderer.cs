@@ -37,12 +37,13 @@ namespace Preactor {
         int fileHash;
         float lastCheckTime;
         UIDocument uiDocument;
+        static IContentProvider contentProviderCache;
 
         public JsEnv JsEnv { get; private set; }
 
         void Awake() {
-            // TODO: load this from Global object??
-            ContentProvider = new AddressablesContentProvider();
+            contentProviderCache ??= new AddressablesContentProvider();
+            ContentProvider = contentProviderCache;
             uiDocument = GetComponent<UIDocument>();
         }
 
@@ -73,7 +74,7 @@ namespace Preactor {
 
         void OnDestroy() {
             Shutdown();
-            ContentProvider.Dispose();
+            // ContentProvider.Dispose();
         }
 
         public IContentProvider ContentProvider { get; private set; }

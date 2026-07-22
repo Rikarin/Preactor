@@ -3,6 +3,7 @@ using Preactor.Utils;
 using Preactor.Utils.Attributes;
 using Puerts;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -113,6 +114,33 @@ namespace Preactor {
             ClearVisualElement();
 
             var global = FindFirstObjectByType<PreactGlobal>();
+
+            // Custom delegate bridges must exist before ANY script evaluates: the first
+            // render's effects run off JS timers and can pass a delegate to C# the moment
+            // the entry file runs. A controller is typically both a component here and a
+            // GlobalObjects entry — the set keeps it from being configured twice.
+            var configured = new HashSet<IJsEnvConfigurator>();
+
+            void Configure(object candidate) {
+                if (candidate is IJsEnvConfigurator configurator && configured.Add(configurator)) {
+                    configurator.ConfigureJsEnv(JsEnv);
+                }
+            }
+
+            foreach (var component in GetComponents<IJsEnvConfigurator>()) {
+                Configure(component);
+            }
+
+            foreach (var obj in GlobalObjects) {
+                Configure(obj.obj);
+            }
+
+            if (global != null) {
+                foreach (var obj in global.GlobalObjects) {
+                    Configure(obj.obj);
+                }
+            }
+
             if (global) {
                 foreach (var preload in global.Preloads) {
                     JsEnv.Eval(preload.text);

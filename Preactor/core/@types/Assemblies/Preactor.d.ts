@@ -241,6 +241,7 @@ declare namespace CS {
             public AddOrUpdateSubscribe ($store: any, $key: any, $handler: Function) : System.Action
             public Subscribe ($eventSource: any, $eventName: string, $handler: Function) : System.Action
             public Subscribe ($eventName: string, $handler: Function) : System.Action
+            public AwaitTask ($task: System.Threading.Tasks.Task, $onCompleted: Function) : void
             public add_OnDestroy ($value: System.Action) : void
             public remove_OnDestroy ($value: System.Action) : void
             public constructor ($scriptEngine: Preactor.IScriptEngine)

@@ -3,6 +3,7 @@ using Puerts;
 using System;
 using System.ComponentModel;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Preactor {
     /// <summary>
@@ -92,6 +93,27 @@ namespace Preactor {
 
         [JsInterop]
         public Action Subscribe(string eventName, GenericDelegate handler) => Subscribe(this, eventName, handler);
+
+        /// <summary>
+        ///     Runs <paramref name="onCompleted" /> once <paramref name="task" /> finishes — but only
+        ///     while this engine is still alive. A task handed to <c>puer.$promise</c> can outlive the
+        ///     view awaiting it (a menu that starts a game is torn down before the load completes), and
+        ///     invoking a JS function after its JsEnv was disposed throws from inside the task
+        ///     continuation. Once the engine is gone nobody is listening, so the result is dropped.
+        /// </summary>
+        [JsInterop]
+        public void AwaitTask(Task task, GenericDelegate onCompleted) {
+            var alive = true;
+            void Kill() => alive = false;
+            OnDestroy += Kill;
+
+            task.GetAwaiter().UnsafeOnCompleted(() => {
+                OnDestroy -= Kill;
+                if (alive) {
+                    onCompleted.Action();
+                }
+            });
+        }
 
         [JsInterop]
         public event Action OnDestroy {

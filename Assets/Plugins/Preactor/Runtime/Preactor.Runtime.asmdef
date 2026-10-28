@@ -12,7 +12,7 @@
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [
-        "ExCSS.Unity.dll",
+        "Preactor.ExCSS.dll",
         "Newtonsoft.Json.dll"
     ],
     "autoReferenced": true,
